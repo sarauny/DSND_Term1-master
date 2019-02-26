@@ -1,93 +1,68 @@
 
-def train(data_dir):
-    from subfunctions import import_library, load_data, save_checkpoint 
+def main():
+    from subfunctions import load_data, create_model,train_model,  save_checkpoint
     
+    import argparse, json, torch
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from torchvision import datasets, transforms, models
+    from torch import nn, optim
+    from PIL import Image
+    
+    arch = 'vgg16'
+    hidden_units = 120
+    learning_rate = 0.001
+    epochs = 5
+    device = 'cpu'
+    
+    # set up parameters for entry in command line
+    parser = argparse.ArgumentParser()
+    parser.add_argument('data_dir', type=str, 
+                        help='Location of directory with data for image classifier to train and test.')
+    parser.add_argument('-a', '--arch', action='store', type=str,
+                       help='Choose among 3 pretrained networks - vgg16, alexnet, and densenet121.')
+    parser.add_argument('-u', '--hidden_units', action='store', type=int,
+                       help='Select number of hidden units for 1st layer.')
+    parser.add_argument('-l', '--learning_rate', action='store', type=float,
+                       help='Choose a float number as the learning rate for the model.')
+    parser.add_argument('-e', '--epochs', action='store', type=int,
+                       help='Choose the number of epochs you want to perform gradient descnet.')
+    parser.add_argument('-s', '--save_dir', action='store', type=str,
+                       help='Select name of file to save the trained model')
+    parser.add_argument('-g', '--gpu', action='store_true', 
+                        help='Use GPU if available')
+    
+    args = parser.parse_args()
+    
+    # Select parameters entered in command line
+    if args.arch:
+        arch = args.arch
+    if args.hidden_units:
+        hidden_units = args.hidden_units
+    if args.learning_rate:
+        learning_rate = args.learning_rate
+    if args.epochs:
+        epochs = args.epochs
+    if args.gpu:
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    
+        
     # load data
+    data_dir = args.data_dir
     train_data, trainloader, validloader, testloader = load_data(data_dir)
     
     # Use GPU if it is available
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    # TODO: Build and train your network
-    model = models.vgg16(pretrained=True)
-    
-    # Freeze parameters so we don't backprop through them
-    for param in model.parameters():
-        param.requires_grad = False
-        
-    # Define a new, untrained feed-forward network as a classifier, using ReLU activations and dropout
-    from collections import OrderedDict
-    classifier = nn.Sequential(OrderedDict([
-        ('dropout', nn.Dropout(0.2)),
-        ('inputs', nn.Linear(25088, 120)),
-        ('relu1', nn.ReLU()),
-        ('hidden_layer1', nn.Linear(120, 90)),
-        ('relu2', nn.ReLU()),
-        ('hidden_layer2', nn.Linear(90, 80)),
-        ('relu3', nn.ReLU()),
-        ('hidden_layer3', nn.Linear(80, 102)),
-        ('output', nn.LogSoftmax(dim=1))
-    ]))
-    
-    model.classifier = classifier
-    
-    criterion = nn.NLLLoss()
-    
-    # Only train the classifier parameters, feature parameters are frozen
-    optimizer = optim.Adam(classifier.parameters(), lr=0.001)
+    # create model
+    model, criterion, optimizer = create_model(arch, hidden_units, learning_rate)
     model.to(device)
     
-    # Train the classifier layers using backpropagation using the pre-trained network to get the features
-    epochs = 5
-    print_every = 5
-    steps = 0
-    running_loss = 0
-    
-    for e in range(epochs):
-        running_loss = 0
-        for ii, (inputs, labels) in enumerate(trainloader):
-            steps += 1
-        
-            # Move input and label tensors to the GPU
-            inputs, labels = inputs.to(device), labels.to(device)
-
-            optimizer.zero_grad()
-        
-            logps = model.forward(inputs)
-            loss = criterion(logps, labels)
-            loss.backward()
-            optimizer.step()    
-
-            running_loss += loss.item()
-
-            if steps % print_every == 0:
-                valid_loss = 0
-                valid_accuracy = 0
-                model.eval()
-
-                with torch.no_grad():
-                    for ii, (inputs2, labels2) in enumerate(validloader):
-                        inputs2, labels2 = inputs2.to(device), labels2.to(device)
-                        logps = model.forward(inputs2)
-                        batch_loss = criterion(logps, labels2)
-
-                        valid_loss += batch_loss.item()
-
-                        # Caluculate accuracy
-                        ps = torch.exp(logps)
-                        top_p, top_class = ps.topk(1, dim=1)
-                        equals = top_class == labels2.view(*top_class.shape)
-                        valid_accuracy += torch.mean(equals.type(torch.FloatTensor)).item()
-
-                print(f"Epoch {e+1}/{epochs}..",
-                      f"Train loss: {running_loss/print_every:.3f}..",
-                      f"Validation loss: {valid_loss/len(validloader):.3f}..",
-                      f"Validation accuracy: {valid_accuracy/len(validloader):.3f}")
-
-                running_loss = 0
-                model.train()
+    # train mode
+    trained_model = train_model(device, trainloader, model, criterion, optimizer, epochs)
      
     # save checkpoint
-    save_checkpoint(model, optimizer, classifier)
+    save_checkpoint(trained_model, optimizer, classifier)
     
-    # 
+# implement train()
+if __name__ == '__main__' : main()
